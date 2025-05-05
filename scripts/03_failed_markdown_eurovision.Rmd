@@ -1,0 +1,301 @@
+
+
+library(tidyverse)    
+library(knitr)        
+library(rmarkdown)    
+library(glue)         
+library(scales)       
+
+eurovision <- read_csv("data/eurovision.csv")
+
+create_rmd_template <- function() {
+  template_content <- '---
+title: "{{{country_name}}} - Eurovision Profile"
+output: 
+  html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+params:
+  country_name: "Ukraine"
+  years_participated: 0
+  years_qualified: 0
+  years_won: 0 
+  
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+library(tidyverse)
+library(knitr)
+library(scales)
+```
+
+```{r calculate_metrics, include=FALSE}
+years_participated <- function(country) {
+  eurovision %>% filter(to_country == country) %>% 
+    summarise(years_participated = n_distinct(year))
+} 
+
+  years_qualified <- function(country) {
+  eurovision %>% filter(to_country == country) %>% 
+    filter(!is.na(place_final)) %>% 
+  summarise(years_qualified = n_distinct(year))
+} 
+
+  years_won <- function(country) {
+  eurovision %>% filter(to_country == country) %>% 
+  filter(place_final == 1) %>% 
+  summarise(years_won = n_distinct(year))
+}
+
+  graph_final_place_distribution <- function(country) {
+  eurovision %>% filter(to_country == country) %>% 
+  filter(!is.na(place_final)) %>% 
+  group_by(year) %>% 
+  slice(1) %>% 
+  ungroup() %>% 
+  count(place_final) %>%   
+  ggplot(aes(x = place_final, y = n)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(
+    aes(label = n),
+    vjust = 0, 
+    nudge_y = 0.1,
+    color = "black") +
+  scale_x_continuous(breaks = seq(1, 27, by = 1)) +
+  labs(title = paste0("Final place distribution for ", country), 
+       x = "Place in the Grand Final", 
+       y = "Number of times place acquired") +
+  theme_classic()
+} 
+  
+  best_performance <- function(country) {
+  eurovision %>% group_by(year, round) %>% 
+  mutate(total_possible = sum(total_points)) %>% 
+  filter(to_country == country) %>% 
+  mutate(n_points = sum(total_points)) %>% 
+  slice(1) %>% 
+  summarise(pct_points = n_points*100/total_possible) %>% 
+  arrange(desc(pct_points)) %>% 
+  head(1) %>% 
+  select(round, year) %>% 
+    unite(col = round_year, year, round, sep = " ") %>% 
+    pull(round_year)
+}
+  
+  graph_loyal_besties <- function(country) {
+  eurovision %>% filter(to_country == country) %>% 
+  group_by(from_country) %>% 
+  summarise(min_points = min(total_points)) %>% 
+  filter(min_points != 0) %>% 
+  arrange(desc(min_points)) %>% 
+  ggplot(aes(x = reorder(from_country, -min_points), y = min_points)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(aes(label = min_points),
+    position = position_stack(vjust = 0.5),
+    color = "black") +
+  labs(title = paste0("Minimum points from countries that have never given ", country, " zero points"), 
+       x = "Countries", 
+       y = "Minimum points") +
+  theme_classic()
+}
+
+
+```
+
+
+## Overview
+This is a Eurovision Song Contest Profile for **{{{params$country_name}}}** based on 1957-2024 data.
+
+## Participation 
+**{{{params$country_name}}}** has participated in Eurovision **{{{params$years_participated}}}** times and competed in the final round **{{{params$years_qualified}}}** times. 
+
+## Successes
+**{{{params$country_name}}}** has won **{{{params$years_won}}}** times. Its most successful performance took place in the **{{{params$best_performance}}}**.
+
+## Final place distribution 
+Below is a chart showing how many times **{{{params$country_name}}}** earned a certain place in the final round of Eurovision:
+```{r final_place_distribution, fig.width=10, fig.height=6}
+graph_final_place_distribution(params$country_name)
+```
+
+## Loyal besties
+Below are the countries that have NEVER given **{{{params$country_name}}}** zero points. The chart shows the minimum number of points those countries gave, instead. 
+```{r loyal_besties, fig.width=10, fig.height=6}
+graph_loyal_besties(params$country_name)
+```
+
+
+---
+
+'
+  
+  dir.create("templates", showWarnings = FALSE)
+  
+  writeLines(template_content, "templates/country_template.Rmd")
+  
+  return("templates/country_template.Rmd")
+}
+
+# Function to generate a report for a single country
+generate_country_report <- function(country_name, data) {
+  template_path <- "templates/country_template.Rmd"
+  if(!file.exists(template_path)) {
+    template_path <- create_rmd_template()
+  }
+  
+  
+  
+  
+  
+  # Filter data for the specific receiving country
+  
+  years_participated <- function(country) {
+  eurovision %>% filter(to_country == country) %>% 
+    summarise(years_participated = n_distinct(year))
+} 
+
+  years_qualified <- function(country) {
+  eurovision %>% filter(to_country == country) %>% 
+    filter(!is.na(place_final)) %>% 
+  summarise(years_qualified = n_distinct(year))
+} 
+
+  years_won <- function(country) {
+  eurovision %>% filter(to_country == country) %>% 
+  filter(place_final == 1) %>% 
+  summarise(years_won = n_distinct(year))
+}
+
+  graph_final_place_distribution <- function(country) {
+  eurovision %>% filter(to_country == country) %>% 
+  filter(!is.na(place_final)) %>% 
+  group_by(year) %>% 
+  slice(1) %>% 
+  ungroup() %>% 
+  count(place_final) %>%   
+  ggplot(aes(x = place_final, y = n)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(
+    aes(label = n),
+    vjust = 0, 
+    nudge_y = 0.1,
+    color = "black") +
+  scale_x_continuous(breaks = seq(1, 27, by = 1)) +
+  labs(title = paste0("Final place distribution for ", country), 
+       x = "Place in the Grand Final", 
+       y = "Number of times place acquired") +
+  theme_classic()
+} 
+  
+  best_performance <- function(country) {
+  eurovision %>% group_by(year, round) %>% 
+  mutate(total_possible = sum(total_points)) %>% 
+  filter(to_country == country) %>% 
+  mutate(n_points = sum(total_points)) %>% 
+  slice(1) %>% 
+  summarise(pct_points = n_points*100/total_possible) %>% 
+  arrange(desc(pct_points)) %>% 
+  head(1) %>% 
+  select(round, year) %>% 
+    unite(col = round_year, year, round, sep = " ") %>% 
+    pull(round_year)
+}
+  
+  graph_loyal_besties <- function(country) {
+  eurovision %>% filter(to_country == country) %>% 
+  group_by(from_country) %>% 
+  summarise(min_points = min(total_points)) %>% 
+  filter(min_points != 0) %>% 
+  arrange(desc(min_points)) %>% 
+  ggplot(aes(x = reorder(from_country, -min_points), y = min_points)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(aes(label = min_points),
+    position = position_stack(vjust = 0.5),
+    color = "black") +
+  labs(title = paste0("Minimum points from countries that have never given ", country, " zero points"), 
+       x = "Countries", 
+       y = "Minimum points") +
+  theme_classic()
+}
+  
+  
+  
+  
+  
+  # Create the output folder if it doesn't exist
+  dir.create("country_reports", showWarnings = FALSE)
+  
+  # Create output filename
+  output_file <- paste0("country_reports/{tolower(gsub(' ', '_', country_name))}")
+  
+  # Render the report with parameters
+  rmarkdown::render(
+    input = template_path,
+    output_file = paste0(output_file, ".html"),
+    params = list(
+      country_name = country_name,
+      country_data = country_data
+    ),
+    envir = new.env()
+  )
+  
+  return(output_file)
+}
+  
+  return(output_file)
+}
+
+# Generate reports for all countries
+generate_all_reports <- function(data) {
+  # Get all unique receiving countries
+  all_countries <- unique(data$to_country)
+  
+  # First, create the template
+  create_rmd_template()
+  
+  # Generate a report for each country
+  map_chr(all_countries, ~generate_country_report(.x, data))
+}
+
+# Execute the function to generate all reports
+# Uncomment the next line when ready to run
+# generated_files <- generate_all_reports(eurovision_data)
+
+# Print the generated files
+# print(generated_files)
+
+# If you want to process just one country for testing:
+# test_file <- generate_country_report("Sweden", eurovision_data)
+# print(test_file)
+  
+  # Write markdown to file
+  writeLines(md_content, md_filename)
+  
+  # Render to HTML (optional)
+  rmarkdown::render(md_filename, output_format = "html_document", 
+                    output_dir = "country_reports")
+  
+  return(md_filename)
+}
+
+# Generate reports for all countries
+generate_all_reports <- function(data) {
+  # Get all unique receiving countries
+  all_countries <- unique(data$to_country)
+  
+  # Generate a report for each country
+  map_chr(all_countries, ~generate_country_report(.x, data))
+}
+
+# Execute the function to generate all reports
+# Uncomment the next line when ready to run
+# generated_files <- generate_all_reports(eurovision_data)
+
+# Print the generated files
+# print(generated_files)
+
+# If you want to process just one country for testing:
+test_file <- generate_country_report("Sweden", eurovision_data)
+print(test_file)

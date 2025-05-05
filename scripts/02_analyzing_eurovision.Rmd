@@ -1,0 +1,1072 @@
+---
+title: "Eurovision analysis"
+output: html_notebook
+---
+
+This is my analysis file. First, I will ask some overall Eurovision questions. Then, I will ask questions for the "country profiles" part. I will use Ukraine, my home country, as the example-country, and I will also write functions for each question. 
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+eurovision <- read_csv("data/eurovision.csv")
+```
+
+General Eurovision questions
+Question 1. How many distinct countries have participated in Eurovision over the years?
+```{r}
+eurovision %>% summarise(n = n_distinct(to_country_id))
+
+# Answer: 52 distinct countries have participated in Eurovision since 1957. "Distinct" here needs explanation. Some countries used to be part of other countries. For example, Serbia and Montenegro used to be one participant between 2004 and 2005 but then started being separate contestants in 2007. The same applies to Yugoslavia. This is just something to keep in mind. 
+
+# Here is how I found out about Serbia and Montenegro:
+eurovision %>% filter(grepl("Serbia", to_country, ignore.case = T)) %>% 
+  group_by(year) %>% 
+  slice(1) %>% 
+  select(year, to_country)
+```
+
+Question 2. How many distinct countries have won Eurovision? 
+```{r}
+eurovision %>% filter(place_final == 1) %>% 
+  summarise(n = n_distinct(to_country))
+
+# Answer: 27 distinct countries have won Eurovision since 1957. 
+```
+
+Question 3. Which country has won the most?
+```{r}
+eurovision %>% filter(place_final == 1) %>% 
+  group_by(year, to_country) %>% 
+  summarise(n = n_distinct(to_country)) %>% 
+  ungroup() %>% 
+  count(to_country) %>% 
+  arrange(desc(n))
+  
+# Answer: Ireland and Sweden are tied in the highest number of wins. They have both taken the trophy seven times. 
+```
+
+Question 4. Which country has gotten second place the most?
+```{r}
+eurovision %>% filter(place_final == 2) %>% 
+  group_by(year, to_country) %>% 
+  summarise(n = n_distinct(to_country)) %>% 
+  ungroup() %>% 
+  count(to_country) %>% 
+  arrange(desc(n))
+
+# Answer: The United Kingdom has come second the most with a staggering 16 times!
+```
+
+Question 5. Which country has come last in the final the most?
+```{r}
+#This one is a little trickier because last place in the final is not an exact number - it varies based on how many countries participate in the final. That's why I will approach it a little differently
+
+eurovision %>% filter(!is.na(place_final)) %>%
+  arrange(desc(place_final)) %>% 
+  group_by(year) %>% 
+  slice(1) %>% 
+  select(year, to_country, place_final) %>% 
+  ungroup() %>% 
+  count(to_country) %>% 
+  arrange(desc(n))
+  
+# Progress answer: The answer I got here is Norway with 10 last places. However, I googled this just to make sure I was correct and found out that Norway has come last 12 times. I then found out that a lot of countries tie for last place. I will try to walk around this hurdle 
+
+eurovision %>% filter(!is.na(place_final)) %>% 
+  group_by(year, to_country) %>% 
+  slice(1) %>% #this is to make sure every participant appears once
+  group_by(year) %>% 
+  filter(place_final == max(place_final)) %>% 
+  select(year, to_country, place_final) %>% 
+  ungroup() %>% 
+  count(to_country) %>% 
+  arrange(desc(n))
+
+# Answer: now this works great! The country who has come last is still Norway, but this time with 12 times total. 
+```
+
+Question 6. Have several countries ever tied for first place? 
+```{r}
+eurovision %>% filter(place_final == 1) %>% 
+  group_by(year, to_country) %>% 
+  slice(1) %>% 
+  select(year, to_country, place_final) %>% 
+  group_by(year) %>% 
+  count(year) %>% 
+  arrange(desc(n))
+
+# Answer: Indeed! There was a four way tie in 1969. 
+
+eurovision %>% filter(year == 1969) %>% 
+  filter(place_final == 1) %>% 
+  group_by(to_country) %>% 
+  slice(1) %>% 
+  select(to_country, place_final)
+
+# The countries that tied for first place in 1969 were France, the Netherlands, Spain and the United Kingdom. 
+
+# Now I want to see if this has at all affected which country has won the most
+
+eurovision %>% filter(place_final == 1) %>% 
+  group_by(year, to_country) %>% 
+  slice(1) %>% 
+  select(year, to_country, place_final) %>% 
+  ungroup() %>% 
+  group_by(to_country) %>% 
+  count(to_country) %>% 
+  arrange(desc(n))
+
+# Answer: Ireland and Sweden are still tied at seven, so all is good!
+```
+
+Question 7. Which country has the highest qualification rate?
+```{r}
+#A country qualifies if it moves from the semi-final to the final round
+
+eurovision %>% group_by(year, to_country) %>% 
+  slice(1) %>% 
+  group_by(to_country) %>% 
+  mutate(n_participated = n()) %>% 
+  select(identifier, year, to_country, place_final, n_participated) %>% 
+  filter(!is.na(place_final)) %>% 
+  mutate(n_qualified = n()) %>% 
+  mutate(qual_rate = n_qualified*100/n_participated) %>% 
+  group_by(to_country) %>% 
+  slice(1) %>% 
+  arrange(desc(qual_rate)) %>% 
+  select(to_country, n_participated, n_qualified, qual_rate)
+
+# from this I see that several countries have always qualifies, so now I want to see which countries have always qualified
+
+eurovision %>% group_by(year, to_country) %>% 
+  slice(1) %>% 
+  group_by(to_country) %>% 
+  mutate(n_participated = n()) %>% 
+  select(identifier, year, to_country, place_final, n_participated) %>% 
+  filter(!is.na(place_final)) %>% 
+  mutate(n_qualified = n()) %>% 
+  mutate(qual_rate = n_qualified*100/n_participated) %>% 
+  group_by(to_country) %>% 
+  slice(1) %>% 
+  arrange(desc(qual_rate)) %>% 
+  select(to_country, n_participated, n_qualified, qual_rate) %>% 
+  filter(qual_rate == 100) %>% 
+  distinct(to_country)
+  
+# Answer: France, Germany, Italy, Luxembourg, Morocco, Serbia and Montenegro (as one participant), Spain, Ukraine, United Kingdom and Yugoslavia have always qualified into the final round.
+```
+
+Actually, I should redo the qualification rate question. This is because qualifications only occur when semifinals exist (because otherwise all contestants are already in the final round), so take two!
+```{r}
+#First, I need to remind myself when semifinals became a thing
+eurovision %>% distinct(year, round) %>% 
+  filter(round != "final")
+
+# I see that the first semi final took place in 2004, so I will filter for contests from 2004 and up!
+
+eurovision %>% filter(year >= 2004) %>% 
+  group_by(year, to_country) %>% 
+  slice(1) %>% 
+  group_by(to_country) %>% 
+  mutate(n_participated = n()) %>% 
+  select(year, to_country, place_final, n_participated) %>% 
+  filter(!is.na(place_final)) %>% 
+  mutate(n_qualified = n()) %>% 
+  mutate(qual_rate = n_qualified*100/n_participated) %>% 
+  group_by(to_country) %>% 
+  slice(1) %>% 
+  arrange(desc(qual_rate)) %>% 
+  select(to_country, n_participated, n_qualified, qual_rate) %>% 
+  filter(qual_rate == 100) %>% 
+  distinct(to_country)
+
+# Answer: This way I have lost two countries: Morocco and Yugoslavia. However, France, Germany, Italy, Luxembourg, Serbia and Montenegro, Spain, Ukraine and United Kingdom still have 100% qualification rates. 
+
+# This is entirely a sidenote, but France, Germany, Italy, Spain and the United Kingdom are considered the Big Five, and they always qualify to the final, according to Eurovision rules. This is because the Big Five make the largest financial contributions to the EBU, and this is their reward. So, if we exclude the Big Five too, the only countries with the 100% qualification rate are Serbia and Montenegro (but they are no longer one country), Luxembourg and Ukraine (hopefully, I don't jinx this). 
+```
+
+Question 8. Which country has almost qualified the most?
+```{r}
+# This one is also a little tricky. Since 2008, 10 countries with the highest number of points from each semi final qualify to the final. Before 2008, the system was entirely different, so for the sake of this question, I will only look at contests since 2008. The country that almost qualified is the country that came 11th in its semifinal (therefore, almost making it to the final).
+
+eurovision %>% group_by(year, to_country) %>% 
+  mutate(grand_total = sum(total_points)) %>% 
+  slice(1) %>% 
+  select(year, round, to_country, grand_total) %>% 
+  filter(year >= 2008) %>% 
+  filter(grepl("semi", round, ignore.case = T)) %>% 
+  ungroup() %>% 
+  group_by(year, round) %>% 
+  arrange(desc(grand_total), .by_group = T)
+  
+#something is wrong here because there should be more countries in 2008 semi-final-1
+
+eurovision %>% filter(year == 2008 & round == "semi-final-1") %>% 
+  distinct(to_country)
+#I was right, I should be seeing 19 countries instead of 9
+
+# Second attempt
+
+eurovision %>% group_by(year, round, to_country) %>% 
+  mutate(grand_total = sum(total_points)) %>% 
+  select(year, round, to_country, grand_total) %>% 
+  filter(year >= 2008) %>% 
+  filter(grepl("semi", round, ignore.case = T)) %>% 
+  ungroup() %>% 
+  group_by(year, to_country) %>% 
+  slice(1) %>% 
+  group_by(year, round) %>% 
+  arrange(desc(grand_total), .by_group = T) %>% #now this is right
+  slice(11) %>% 
+  ungroup() %>% 
+  group_by(to_country) %>% 
+  count() %>% 
+  arrange(desc(n))
+
+# Answer: there are five countries that have almost qualified twice: they are Croatia, Lithuania, Moldova, North Macedonia and Serbia. 
+```
+
+Actually, I realized that several countries may have tied for 11th place in their semifinals, and my previous code doesn't account for this. I consulted Claude, and it came up with this solution
+```{r}
+?min_rank #this makes so much sense!!
+
+eurovision %>% group_by(year, round, to_country) %>% 
+  mutate(grand_total = sum(total_points)) %>% 
+  select(year, round, to_country, grand_total) %>% 
+  filter(year >= 2008) %>% 
+  filter(grepl("semi", round, ignore.case = T)) %>% 
+  ungroup() %>% 
+  group_by(year, to_country) %>% 
+  slice(1) %>% 
+  group_by(year, round) %>% 
+  arrange(desc(grand_total), .by_group = T) %>%
+  mutate(rank = min_rank(desc(grand_total))) %>%  
+  filter(rank == 11) %>% 
+  ungroup() %>% 
+  group_by(to_country) %>% 
+  count() %>% 
+  arrange(desc(n))
+  
+# I am glad I double checked! Now, Malta has joined the ranks of those countries that have almost qualified twice. No country has almost qualified three times.   
+```
+
+Question 9. Are there countries that have never qualified? 
+```{r}
+# For this one I will also only be looking at contests since 2004
+
+eurovision %>% filter(year >= 2004) %>% 
+  group_by(year, round, to_country) %>% 
+  mutate(n_points = sum(total_points)) %>% 
+  slice(1) %>% 
+  ungroup() %>%
+  select(year, round, to_country, n_points) %>% 
+  group_by(year, round) %>% 
+  arrange(desc(n_points), .by_group = T) %>% 
+  mutate(rank = min_rank(desc(n_points))) %>% 
+  ungroup() %>% 
+  group_by(to_country) %>%
+  mutate(n_participated = n()) #This does not do what I want it to do, so I will try a different way
+
+# For the code above, I was thinking I can select countries that ranked 11 and above and deem them as those that didn't qualify, but then I remembered this rule was only introduced in 2008, so this would not work. 
+
+#Second attempt
+eurovision %>% filter(year >= 2004) %>% 
+  group_by(year, round, to_country) %>% 
+  arrange(round, .by_group = T) %>% #this is to make sure the final round will always appear first before the semi final round
+  ungroup() %>% 
+  group_by(year, to_country) %>% 
+  slice(1) %>% 
+  group_by(to_country) %>% 
+  mutate(n_participated = n()) %>% 
+  select(year, round, to_country, place_final, n_participated) %>% 
+  filter(is.na(place_final)) %>% 
+  group_by(to_country) %>%
+  mutate(n_not_qual = n()) %>% 
+  distinct(to_country, n_participated, n_not_qual) %>% 
+  filter(n_participated == n_not_qual)
+
+# Answer: Andorra, Monaco and Slovakia are yet to qualify to the final round. 
+
+# Vetting this:
+eurovision %>% filter(year >= 2004 & round == "final") %>% 
+  filter(to_country %in% c("Andorra", "Monaco", "Slovakia"))
+
+# I get zero rows, so this is correct 
+```
+
+Question 10. Which country has the highest point average? 
+```{r}
+# Here I am doing averages because some countries have participated way more than others, so comparing raw totals would not be fair. There are two ways to answer this question. For the first one, one participation equals participation in one round (semi-final 2022 and final 2022, for example, would be two different participation units).
+
+eurovision %>% group_by(to_country) %>% 
+  mutate(n_total_points = sum(total_points)) %>% 
+  ungroup() %>% 
+  group_by(year, round, to_country) %>% 
+  slice(1) %>% 
+  select(-identifier, -from_country_id, -from_country, -place_final,
+         -to_country_id, -total_points, -jury_points, -tele_points) %>% 
+  ungroup() %>% 
+  group_by(to_country) %>% 
+  mutate(n_participated = n(), 
+         avg_point = n_total_points/n_participated) %>% 
+  distinct(to_country, n_participated, n_total_points, avg_point) %>% 
+  arrange(desc(avg_point))
+
+#Serbia and Montenegro had the highest point average of 221 points. Next is Australia with 197.5 points and Ukraine with 194.9 points. 
+
+# Now, I will answer the same question, but one participation will equal one competition. 
+eurovision %>% group_by(to_country) %>% 
+  mutate(n_total_points = sum(total_points)) %>% 
+  ungroup() %>% 
+  group_by(year, to_country) %>% 
+  slice(1) %>% 
+  select(-identifier, -from_country_id, -from_country, -place_final,
+         -to_country_id, -total_points, -jury_points, -tele_points) %>% 
+  ungroup() %>% 
+  group_by(to_country) %>% 
+  mutate(n_participated = n(), 
+         avg_point = n_total_points/n_participated) %>% 
+  distinct(to_country, n_participated, n_total_points, avg_point) %>% 
+  arrange(desc(avg_point))
+
+# Answer: The top three countries are the same this way, but their order has changed. In first place with the highest point average is Ukraine with 338.6 points, followed by Serbia and Montenegro with 331.5 points and Australia with 329.2 points. 
+```
+
+Question 11. Which country has the highest point average from televoters only?
+```{r}
+# For this one, I will only look at competitions since 2016 because that's when the separation between televotes and jury votes was introduced
+
+# I think one round = one participation is more fair, so I will use this option for the next queries
+
+eurovision %>% filter(year >=2016) %>% 
+  group_by(to_country) %>% 
+  mutate(n_total_telev = sum(tele_points)) %>% 
+  select(-identifier, -from_country_id, -from_country, -place_final,
+         -to_country_id, -total_points, -jury_points, -tele_points) %>%
+  ungroup() %>% 
+  group_by(year, round, to_country) %>% 
+  slice(1) %>% 
+  ungroup() %>% 
+  group_by(to_country) %>% 
+  mutate(n_participated = n(), 
+         avg_tele_point = n_total_telev/n_participated) %>% 
+  distinct(to_country, n_total_telev, n_participated, avg_tele_point) %>% 
+  arrange(desc(avg_tele_point))
+
+#Answer: Ukraine is in the lead once again with 206 points from televoters per round on average.
+```
+
+Question 12. Which country has the highest point average from Rest of the World televoters only?
+```{r}
+eurovision %>% filter(from_country == "World") %>%
+  group_by(to_country) %>% 
+  mutate(n_points = sum(total_points)) %>% 
+  ungroup() %>% 
+  group_by(year, round, to_country) %>% 
+  slice(1) %>% 
+  ungroup() %>% 
+  group_by(to_country) %>% 
+  mutate(n_participated = n()) %>% 
+  mutate(wld_avg_points = n_points/n_participated) %>% 
+  distinct(to_country, wld_avg_points) %>% 
+  arrange(desc(wld_avg_points))
+
+# Answer: Israel gets the highest average number of points (12) from Rest of the World voters. 
+
+# I vetted this with the following code, and everything is correct:
+eurovision %>% filter(from_country == "World" & to_country == "Israel") %>% 
+  select(total_points)
+```
+
+Question 13. Which country has the highest point average from juries only?
+```{r}
+eurovision %>% filter(year >=2016) %>% 
+  group_by(to_country) %>% 
+  mutate(n_total_jury = sum(jury_points)) %>% 
+  ungroup()
+
+# This can't be right because a lot of countries have NAs when I know for a fact they got jury votes
+
+# I think the reason might be that some of the values are in fact NA (like in 2023, 2024 semifinals), and that's throwing everything off. I am going to replace all NAs with zeros and try again
+
+eurovision %>% filter(year >=2016) %>% 
+  mutate(jury_points = replace_na(jury_points, 0)) %>% 
+  group_by(to_country) %>% 
+  mutate(n_total_jury = sum(jury_points)) %>% 
+  ungroup() %>% 
+  group_by(year, round, to_country) %>% 
+  slice(1) %>% 
+  ungroup() %>% 
+  select(-identifier, -from_country_id, -from_country, -place_final,
+         -to_country_id, -total_points, -jury_points, -tele_points) %>% 
+  group_by(to_country) %>% 
+  mutate(n_participated = n(), 
+         avg_jury_point = n_total_jury/n_participated) %>%
+  distinct(to_country, n_total_jury, n_participated, avg_jury_point) %>% 
+  arrange(desc(avg_jury_point))
+  
+#Answer: Sweden gets the most jury points on average with 168.6 points per round.  
+```
+
+Question 14. What is the most sucessful entry to date?
+```{r}
+#For this one, I will look at only songs in the final round (because they were inherently more successful than the songs that did not qualify) and I will judge "the most successful" as the one that had the highest percentage of the total points
+
+eurovision %>% filter(round == "final") %>% 
+  group_by(year) %>%
+  mutate(total_possible = sum(total_points)) %>% 
+  ungroup() %>% 
+  group_by(year, to_country) %>% 
+  mutate(entry_total = sum(total_points)) %>% 
+  slice(1) %>% 
+  select(year, to_country, total_possible, entry_total) %>% 
+  mutate(pct_score = entry_total*100/total_possible) %>% 
+  ungroup() %>% 
+  arrange(desc(pct_score))
+
+# Answer: Italy's 1964 entry got 34% of all available points which is the highest percentage to date, making it the most successful entry. 
+
+# I believe the percentage depends on the number of participants which has grown significantly between 1957 and 2024 (which also explains why the first 20 most successful entries took part in the contest before 1970). This is why I now want to separate the contests by decade and find the most successful song for each decade (I'll make this a separate code chunk)
+```
+
+Question 15. What is the most successful song in each decade?
+```{r}
+#I remember with did decades in class with hot 100, so I looked at that script and found floor there
+
+eurovision %>% mutate(decade = floor(year/10)*10, 
+                      .after = year) %>% 
+  filter(round == "final") %>% 
+  group_by(year) %>%
+  mutate(total_possible = sum(total_points)) %>% 
+  ungroup() %>% 
+  group_by(year, to_country) %>% 
+  mutate(entry_total = sum(total_points)) %>% 
+  slice(1) %>% 
+  select(year, decade, to_country, total_possible, entry_total) %>% 
+  mutate(pct_score = entry_total*100/total_possible) %>% 
+  ungroup() %>% 
+  group_by(decade) %>% 
+  arrange(desc(pct_score), .by_group = T) %>% 
+  slice(1) %>% distinct(to_country)
+
+# Answer: Now, there's range! The Netherlands (1950s), Italy (1960s), Ireland (1970s), Germany (1980s), the United Kingdom (1990s), Norway (2000s), Sweden (2010s) and Ukraine (2020s) had the most successful songs of their decades.   			
+```
+
+
+Country profile questions 
+Like I mentioned, I will copy and paste all the functions into the markdown file, so nothing there will be new, but it will all *hopefully* work
+
+Question 16. How many times has a country participated? 
+```{r}
+# I will start with Ukraine
+
+eurovision %>% filter(to_country == "Ukraine") %>% 
+  summarise(years_participated = n_distinct(year))
+  
+#Answer: Ukraine has participated 19 times
+```
+
+Question 16. Function
+```{r}
+# I looked at the code we wrote for our NWS function
+
+years_participated <- function(country) {
+  eurovision %>% filter(to_country == country) %>% 
+    summarise(years_participated = n_distinct(year))
+} 
+
+years_participated("Ukraine")
+```
+
+Question 17. How many times has a country participated in the final?
+```{r}
+eurovision %>% filter(to_country == "Ukraine") %>% 
+  filter(!is.na(place_final)) %>% 
+  summarise(years_qualified = n_distinct(year))
+
+# Answer: Ukraine has participated in the final 19 times. 
+```
+
+Question 17. Function
+```{r}
+years_qualified <- function(country) {
+  eurovision %>% filter(to_country == country) %>% 
+    filter(!is.na(place_final)) %>% 
+  summarise(years_qualified = n_distinct(year))
+}
+
+years_qualified("Ukraine")
+```
+
+Question 18. What is a country's qualification rate? 
+```{r}
+eurovision %>% filter(to_country == "Ukraine") %>% 
+  mutate(years_participated = n_distinct(year)) %>% 
+  filter(!is.na(place_final)) %>% 
+  mutate(years_qualified = n_distinct(year)) %>% 
+  summarise(qualification_rate = years_qualified*100/years_participated) %>% 
+  head(1) 
+  
+#Answer: Ukraine's qualification rate is 100%. 
+```
+
+Question 18. Function
+```{r}
+qualification_rate <- funtion(country) {
+  eurovision %>% filter(to_country == country) %>% 
+    mutate(years_participated = n_distinct(year)) %>% 
+  filter(!is.na(place_final)) %>% 
+  mutate(years_qualified = n_distinct(year)) %>% 
+  summarise(qualification_rate = years_qualified*100/years_participated) %>% 
+  head(1)
+}
+
+# This didn't work, but I found out that I am supposed to use {{ }} for column names inside functions, so I will try that
+
+qualification_rate <- funtion(country) {
+  eurovision %>% filter(to_country == country) %>% 
+    group_by(to_country) %>% 
+    mutate(years_participated = n_distinct(year)) %>% 
+  filter(!is.na(place_final)) %>% 
+  mutate(years_qualified = n_distinct(year)) %>% 
+  summarise(qualification_rate = {{years_qualified}}*100/{{years_participated}}) %>% 
+  head(1)
+}
+
+#This didn't work either, so I showed my code to Chat GPT. It said I need to use summarise instead of mutate
+
+qualification_rate <- function(country) {
+  eurovision %>%
+    filter(to_country == country) %>% 
+    summarise(
+      years_participated = n_distinct(year),
+      years_qualified = n_distinct(year[!is.na(place_final)])) %>% #this was Chat's suggestion, and I get it; we are saying that we want distinct years on the condition that place_final is not NA
+    mutate(qualification_rate = years_qualified * 100 / years_participated) %>%
+    head(1) %>% 
+    select(qualification_rate)
+}
+
+qualification_rate("Ukraine")
+```
+
+Question 19. How many times did a country almost qualify?
+```{r}
+eurovision %>% filter(year >= 2008) %>% #disclaimer 1: qualifiers are the top 10 in each semifinal only became a thing in 2008 and between 2004 and 2007 there was an entirely different system
+  filter(grepl("semi", round, ignore.case = T)) %>% 
+  group_by(year, round, to_country) %>% 
+  mutate(n_points = sum(total_points)) %>% 
+  ungroup() %>% 
+  group_by(year, round, to_country) %>%
+  slice(1) %>% 
+  ungroup() %>% 
+  group_by(year, round) %>% 
+  arrange(desc(n_points), .by_group = T) %>% 
+  mutate(rank = min_rank(desc(n_points))) %>% 
+  filter(rank == 11) %>% 
+  filter(to_country == "Croatia") %>% 
+  ungroup() %>% 
+  summarise(years_almost_qualified = n_distinct(year))
+
+# Answer: Croatia has almost qualified twice since the new qualification rules were adopted in 2008. (I used Croatia because I knew Ukraine has never almost qualified)
+```
+
+Question 19. Function 
+```{r}
+years_almost_qualified <- function(country) {
+  eurovision %>% filter(year >= 2008) %>%
+  filter(grepl("semi", round, ignore.case = T)) %>% 
+  group_by(year, round, to_country) %>% 
+  mutate(n_points = sum(total_points)) %>% 
+  ungroup() %>% 
+  group_by(year, round, to_country) %>%
+  slice(1) %>% 
+  ungroup() %>% 
+  group_by(year, round) %>% 
+  arrange(desc(n_points), .by_group = T) %>% 
+  mutate(rank = min_rank(desc(n_points))) %>% 
+  filter(rank == 11) %>% 
+  filter(to_country == country) %>% 
+  ungroup() %>% 
+  summarise(years_almost_qualified = n_distinct(year))
+
+}
+
+# I actually can't believe this worked first try
+
+years_almost_qualified("Malta")
+
+# I am not going to use this function in my markdown file because it's only accurate with the disclaimer, but I made the function just for practice. 
+```
+
+Question 20. How many times has a country won?
+```{r}
+eurovision %>% filter(to_country == "Ukraine") %>% 
+  filter(place_final == 1) %>% 
+  summarise(years_won = n_distinct(year))
+
+#Answer: Ukraine has won three times. 
+```
+
+Question 20. Function
+```{r}
+years_won <- function(country) {
+  eurovision %>% filter(to_country == country) %>% 
+  filter(place_final == 1) %>% 
+  summarise(years_won = n_distinct(year))
+}
+
+years_won("Ukraine")
+```
+
+Question 21. What is the final place distribution for a country? 
+```{r}
+# This will be a graph!
+
+eurovision %>% filter(to_country == "Ukraine") %>% 
+  filter(!is.na(place_final)) %>% 
+  group_by(year) %>% 
+  slice(1) %>% 
+  ungroup() %>% 
+  count(place_final) %>%   
+  ggplot(aes(x = place_final, y = n)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(
+    aes(label = n),
+    vjust = 0, 
+    nudge_y = 0.1,
+    color = "black") +
+  scale_x_continuous(breaks = seq(1, 27, by = 1)) +
+  labs(title = "Final place distribution for Ukraine", 
+       x = "Place in the Grand Final", 
+       y = "Number of times place acquired") +
+  theme_classic()
+
+# Full disclosure: it probably took me around 40 minutes to figure out how to place numbers over the bars in the way I wanted it, but it worked out in the end!
+```
+
+Question 21. Function
+```{r}
+graph_final_place_distribution <- function(country) {
+  eurovision %>% filter(to_country == country) %>% 
+  filter(!is.na(place_final)) %>% 
+  group_by(year) %>% 
+  slice(1) %>% 
+  ungroup() %>% 
+  count(place_final) %>%   
+  ggplot(aes(x = place_final, y = n)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(
+    aes(label = n),
+    vjust = 0, 
+    nudge_y = 0.1,
+    color = "black") +
+  scale_x_continuous(breaks = seq(1, 27, by = 1)) +
+  labs(title = paste0("Final place distribution for ", country), 
+       x = "Place in the Grand Final", 
+       y = "Number of times place acquired") +
+  theme_classic()
+}
+
+graph_final_place_distribution("Poland")
+```
+
+Question 22. What are the top five friends for each country (overall)
+```{r}
+#The top five friends are the countries that have given a particular country the most points 
+
+eurovision %>% filter(to_country == "Ukraine") %>% 
+  group_by(from_country) %>% 
+  summarise(n_points = sum(total_points)) %>% 
+  arrange(desc(n_points)) %>% 
+  head(5) %>% 
+  ggplot(aes(x = from_country, y = n_points)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(
+    aes(label = n_points),
+    vjust = 0, 
+    nudge_y = 0.1,
+    color = "black") +
+  labs(title = "Top five friends of Ukraine", 
+       x = "Friend", 
+       y = "Points") +
+  theme_classic()
+
+# In this version, the countries on the x axis appear alphabetically, and I want them arranged by the number of points
+
+eurovision %>% filter(to_country == "Ukraine") %>% 
+  group_by(from_country) %>% 
+  summarise(n_points = sum(total_points)) %>% 
+  arrange(desc(n_points)) %>% 
+  head(5) %>% 
+  ggplot(aes(x = reorder(from_country, -n_points), y = n_points)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(
+    aes(label = n_points),
+    position = position_stack(vjust = 0.5),
+    color = "black") +
+  labs(title = "Top five friends of Ukraine", 
+       x = "Friend", 
+       y = "Points") +
+  theme_classic()
+```
+
+Question 22. Function
+```{r}
+graph_overall_besties <- function(country) {
+  eurovision %>% filter(to_country == country) %>% 
+  group_by(from_country) %>% 
+  summarise(n_points = sum(total_points)) %>% 
+  arrange(desc(n_points)) %>% 
+  head(5) %>% 
+  ggplot(aes(x = reorder(from_country, -n_points), y = n_points)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(
+    aes(label = n_points),
+    position = position_stack(vjust = 0.5),
+    color = "black") +
+  labs(title = paste0("Top five friends of ", country), 
+       x = "Friend", 
+       y = "Points") +
+  theme_classic()
+}
+
+graph_overall_besties("Ukraine")
+```
+
+Question 23 . Whose fan is a country (overall)
+```{r}
+#What I mean by this question is I want to do the opposite. For example, who does Ukraine tend to give its points to? 
+
+eurovision %>% filter(from_country == "Ukraine") %>% 
+  group_by(to_country) %>% 
+  summarise(n_points = sum(total_points)) %>% 
+  arrange(desc(n_points)) %>% 
+  head(5) %>% 
+  ggplot(aes(x = reorder(to_country, -n_points), y = n_points)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(
+    aes(label = n_points),
+    position = position_stack(vjust = 0.5),
+    color = "black") +
+  labs(title = "Countries Ukraine gave points to", 
+       x = "Countries", 
+       y = "Points") +
+  theme_classic()
+```
+
+Question 23. Function
+```{r}
+graph_overall_topoints <- function(country) {
+  eurovision %>% filter(from_country == country) %>% 
+  group_by(to_country) %>% 
+  summarise(n_points = sum(total_points)) %>% 
+  arrange(desc(n_points)) %>% 
+  head(5) %>% 
+  ggplot(aes(x = reorder(to_country, -n_points), y = n_points)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(
+    aes(label = n_points),
+    position = position_stack(vjust = 0.5),
+    color = "black") +
+  labs(title = paste0("Countries ", country, " gave points to"), 
+       x = "Countries", 
+       y = "Points") +
+  theme_classic()
+}
+
+graph_overall_topoints("Ukraine")
+```
+
+
+Question 24. What are the top five friends for each country (jury vote only)
+```{r}
+eurovision %>% filter(year >=2016) %>% 
+  mutate(jury_points = replace_na(jury_points, 0)) %>% 
+  filter(to_country == "Ukraine") %>% 
+  group_by(from_country) %>% 
+  summarise(n_jury_points = sum(jury_points)) %>% 
+  arrange(desc(n_jury_points)) %>% 
+  head(5) %>% 
+  ggplot(aes(x = reorder(from_country, -n_jury_points), y = n_jury_points)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(
+    aes(label = n_jury_points),
+    position = position_stack(vjust = 0.5),
+    color = "black") +
+  labs(title = "Top five jury friends of Ukraine", 
+       x = "Jury friend", 
+       y = "Points") +
+  theme_classic()
+```
+
+Question 24. Function
+```{r}
+graph_jury_besties <- function(country) {
+  eurovision %>% filter(year >=2016) %>% 
+  mutate(jury_points = replace_na(jury_points, 0)) %>% 
+  filter(to_country == country) %>% 
+  group_by(from_country) %>% 
+  summarise(n_jury_points = sum(jury_points)) %>% 
+  arrange(desc(n_jury_points)) %>% 
+  head(5) %>% 
+  ggplot(aes(x = reorder(from_country, -n_jury_points), y = n_jury_points)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(
+    aes(label = n_jury_points),
+    position = position_stack(vjust = 0.5),
+    color = "black") +
+  labs(title = paste0("Top five jury friends of ", country), 
+       x = "Jury friend", 
+       y = "Points") +
+  theme_classic()
+}
+
+graph_jury_besties("Moldova")
+```
+
+Question 25. Whose fan is a country (jury only)
+```{r}
+eurovision %>% filter(year >=2016) %>% 
+  mutate(jury_points = replace_na(jury_points, 0)) %>% 
+  filter(from_country == "Ukraine") %>% 
+  group_by(to_country) %>% 
+  summarise(n_jury_points = sum(jury_points)) %>% 
+  arrange(desc(n_jury_points)) %>% 
+  head(5) %>% 
+  ggplot(aes(x = reorder(to_country, -n_jury_points), y = n_jury_points)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(
+    aes(label = n_jury_points),
+    position = position_stack(vjust = 0.5),
+    color = "black") +
+  labs(title = "Countries Ukraine jury gave points to", 
+       x = "Countries", 
+       y = "Points") +
+  theme_classic()
+```
+
+Question 25. Function 
+```{r}
+graph_jury_topoints <- function(country) {
+  eurovision %>% filter(year >=2016) %>% 
+  mutate(jury_points = replace_na(jury_points, 0)) %>% 
+  filter(from_country == country) %>% 
+  group_by(to_country) %>% 
+  summarise(n_jury_points = sum(jury_points)) %>% 
+  arrange(desc(n_jury_points)) %>% 
+  head(5) %>% 
+  ggplot(aes(x = reorder(to_country, -n_jury_points), y = n_jury_points)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(
+    aes(label = n_jury_points),
+    position = position_stack(vjust = 0.5),
+    color = "black") +
+  labs(title = paste0("Countries ", country, " jury gave points to"), 
+       x = "Countries", 
+       y = "Points") +
+  theme_classic()
+}
+
+graph_jury_topoints("Ukraine")
+```
+
+Question 26. What are the top five friends for each country (televote only)
+```{r}
+eurovision %>% filter(year >=2016) %>%
+  filter(to_country == "Ukraine") %>% 
+  group_by(from_country) %>% 
+  summarise(n_tele_points = sum(tele_points)) %>% 
+  arrange(desc(n_tele_points)) %>% 
+  head(5) %>% 
+  ggplot(aes(x = reorder(from_country, -n_tele_points), y = n_tele_points)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(
+    aes(label = n_tele_points),
+    position = position_stack(vjust = 0.5),
+    color = "black") +
+  labs(title = "Top five televoter friends of Ukraine", 
+       x = "Televoting friend", 
+       y = "Points") +
+  theme_classic()
+```
+
+Question 26. Function
+```{r}
+graph_tele_besties <- function(country) {
+  eurovision %>% filter(year >=2016) %>%
+  filter(to_country == country) %>% 
+  group_by(from_country) %>% 
+  summarise(n_tele_points = sum(tele_points)) %>% 
+  arrange(desc(n_tele_points)) %>% 
+  head(5) %>% 
+  ggplot(aes(x = reorder(from_country, -n_tele_points), y = n_tele_points)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(
+    aes(label = n_tele_points),
+    position = position_stack(vjust = 0.5),
+    color = "black") +
+  labs(title = paste0("Top five televoter friends of ", country), 
+       x = "Televoting friend", 
+       y = "Points") +
+  theme_classic()
+}
+
+graph_tele_besties("Ukraine")
+```
+
+Question 27. Whose fan is a country (televotes only)
+```{r}
+eurovision %>% filter(year >=2016) %>% 
+  filter(from_country == "Ukraine") %>% 
+  group_by(to_country) %>% 
+  summarise(n_tele_points = sum(tele_points)) %>% 
+  arrange(desc(n_tele_points)) %>% 
+  head(5) %>% 
+  ggplot(aes(x = reorder(to_country, -n_tele_points), y = n_tele_points)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(
+    aes(label = n_tele_points),
+    position = position_stack(vjust = 0.5),
+    color = "black") +
+  labs(title = "Countries Ukraine televoters gave points to", 
+       x = "Countries", 
+       y = "Points") +
+  theme_classic()
+```
+
+Question 27. Function 
+```{r}
+graph_tele_topoints <- function(country) {
+  eurovision %>% filter(year >=2016) %>% 
+  filter(from_country == country) %>% 
+  group_by(to_country) %>% 
+  summarise(n_tele_points = sum(tele_points)) %>% 
+  arrange(desc(n_tele_points)) %>% 
+  head(5) %>% 
+  ggplot(aes(x = reorder(to_country, -n_tele_points), y = n_tele_points)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(
+    aes(label = n_tele_points),
+    position = position_stack(vjust = 0.5),
+    color = "black") +
+  labs(title = paste0("Countries ", country, " televoters gave points to"), 
+       x = "Countries", 
+       y = "Points") +
+  theme_classic()
+}
+
+graph_tele_topoints("Ukraine")
+```
+
+Question 28. What are each countries loyal best friends
+```{r}
+#Loyal in this case means those that have never given a country a zero
+
+eurovision %>% filter(to_country == "Ukraine") %>% 
+  group_by(from_country) %>% 
+  summarise(min_points = min(total_points)) %>% 
+  filter(min_points != 0) %>% 
+  arrange(desc(min_points)) %>% 
+  ggplot(aes(x = reorder(from_country, -min_points), y = min_points)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(aes(label = min_points),
+    position = position_stack(vjust = 0.5),
+    color = "black") +
+  labs(title = "Minimum points from countries that have never given Ukraine zero points", 
+       x = "Countries", 
+       y = "Minimum points") +
+  theme_classic()
+
+```
+
+Question 28. Function 
+```{r}
+graph_loyal_besties <- function(country) {
+  eurovision %>% filter(to_country == country) %>% 
+  group_by(from_country) %>% 
+  summarise(min_points = min(total_points)) %>% 
+  filter(min_points != 0) %>% 
+  arrange(desc(min_points)) %>% 
+  ggplot(aes(x = reorder(from_country, -min_points), y = min_points)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(aes(label = min_points),
+    position = position_stack(vjust = 0.5),
+    color = "black") +
+  labs(title = paste0("Minimum points from countries that have never given ", country, " zero points"), 
+       x = "Countries", 
+       y = "Minimum points") +
+  theme_classic()
+}
+
+graph_loyal_besties("Ukraine")
+```
+
+Question 29. What countries have never given Ukraine more than a zero?
+```{r}
+eurovision %>% filter(to_country == "Montenegro") %>% 
+  group_by(from_country) %>% 
+  summarise(n_total = sum(total_points)) %>% 
+  arrange(n_total) %>% 
+  filter(from_country != "Montenegro") %>% 
+  filter(n_total == 0) %>% 
+  distinct(from_country)
+```
+
+Question 29. Function 
+```{r}
+only_zeros <- function(country) {
+  eurovision %>% filter(to_country == country) %>% 
+  group_by(from_country) %>% 
+  summarise(n_total = sum(total_points)) %>% 
+  arrange(n_total) %>% 
+  filter(from_country != country) %>% 
+  filter(n_total == 0) %>% 
+  distinct(from_country)
+}
+
+only_zeros("Poland")
+```
+
+Question 30. What is a country's most successful performance?
+```{r}
+eurovision %>% group_by(year, round) %>% 
+  mutate(total_possible = sum(total_points)) %>% 
+  filter(to_country == "Ukraine") %>% 
+  mutate(n_points = sum(total_points)) %>% 
+  slice(1) %>% 
+  summarise(pct_points = n_points*100/total_possible) %>% 
+  arrange(desc(pct_points)) %>% 
+  head(1) %>% 
+  unite(col = round_year, year, round, sep = " ") %>% 
+  mutate(pct_points = round(pct_points, 1))
+```
+
+Question 30. Function
+```{r}
+best_performance <- function(country) {
+  eurovision %>% group_by(year, round) %>% 
+  mutate(total_possible = sum(total_points)) %>% 
+  filter(to_country == country) %>% 
+  mutate(n_points = sum(total_points)) %>% 
+  slice(1) %>% 
+  summarise(pct_points = n_points*100/total_possible) %>% 
+  arrange(desc(pct_points)) %>% 
+  head(1) %>% 
+  unite(col = round_year, year, round, sep = " ") %>% 
+  mutate(pct_points = round(pct_points, 1))
+}
+
+best_performance("Monaco")
+```
+
+Now, I will use the functions I created here in my markdown document (04_actual_eurovision_markdown). 
+This is Mariia from the future (I have now completed the project, and want to share some notes for transparency):
+03_failed_markdown is complete chaos. I had not really understood how markdown works by then, so you can look at it if you want to see absolute panic, or you can skip to 04_actual_eurovision_markdown. 
+A note on how 04_actual_eurovision_markdown happened: first, I found and read R markdown basics on this website: https://rmarkdown.rstudio.com/lesson-1.html. Then I was asking Chat GPT for directions at first (like what to include in {r} brackets), but not actual code because I had already written it myself here, and then I understood the system and started working independetly. I am confident I can recreate or write a similar markdown file on my own now. In the end, however, I definitely needed assistance because I kept getting error messages when I was trying to render the script. At first, I turned to Chat GPT and we tried fixing it, but nothing was working; so, I turned to Claude, and we figured it out. 
+That's all from Mariia from the future :)
+
+
+
+

@@ -1,0 +1,519 @@
+---
+title: "Eurovision Song Contest country profile"
+output: 
+  html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+date: "2025-05-02"
+params:
+  country_name: "Andorra" 
+---
+
+```{r setup, include = FALSE}
+library(tidyverse)
+library(rmarkdown)
+library(ggplot2)
+library(patchwork)
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+```{r datasets, include = FALSE}
+eurovision <- read_csv("data/eurovision.csv")
+```
+
+```{r countries, include = FALSE}
+countries <- unique(eurovision$to_country)
+```
+
+```{r dataset_two, include = FALSE}
+country_to_data <- eurovision %>%
+  filter(to_country == params$country_name)
+```
+
+```{r dataset_three, include = FALSE}
+country_from_data <- eurovision %>%
+  filter(from_country == params$country_name)
+```
+
+```{r years_participated, include = FALSE}
+years_participated <- country_to_data %>%
+  summarise(years_participated = n_distinct(year))
+```
+
+```{r years_qualified, include = FALSE}
+years_qualified <- country_to_data %>% 
+  filter(!is.na(place_final)) %>% 
+  summarise(years_qualified = n_distinct(year))
+```
+
+```{r qualification_rate, include = FALSE}
+qualification_rate <- country_to_data %>% 
+  summarise(years_participated = n_distinct(year),
+            years_qualified = n_distinct(year[!is.na(place_final)])) %>%
+  mutate(qualification_rate = years_qualified * 100 / years_participated) %>%
+  head(1) %>% 
+  select(qualification_rate) %>% 
+  mutate(qualification_rate = round(qualification_rate, 1))
+```
+
+```{r years_won, include = FALSE}
+years_won <- country_to_data %>% 
+  filter(place_final == 1) %>% 
+  summarise(years_won = n_distinct(year))
+```
+
+```{r best_performance, include = FALSE}
+best_performance <- eurovision %>% group_by(year, round) %>% 
+  mutate(total_possible = sum(total_points)) %>% 
+  filter(to_country == params$country_name) %>% 
+  mutate(n_points = sum(total_points)) %>% 
+  slice(1) %>% 
+  summarise(pct_points = n_points*100/total_possible) %>% 
+  arrange(desc(pct_points)) %>% 
+  head(1) %>% 
+  unite(col = round_year, year, round, sep = " ") %>% 
+  mutate(pct_points = round(pct_points, 1))
+```
+
+# `r params$country_name`
+
+
+## Participation and successes
+
+`r params$country_name` has participated in the Eurovision Song Contest `r years_participated$years_participated` times. It made it to the final round `r years_qualified$years_qualified` times - that's `r qualification_rate$qualification_rate`%. 
+
+`r params$country_name` has won `r years_won$years_won` times. Its most successful performance took place in the `r best_performance$round_year`, when the country got `r best_performance$pct_points`% of all possible points. 
+
+## Final place distribution 
+
+Here's how many times `r params$country_name` earned a particular place in the final round of Eurovision: 
+
+```{r graph_final_place_distribution, fig.width=7, fig.height=4, echo = FALSE}
+graph_final_place_distribution <- country_to_data %>% 
+  filter(!is.na(place_final)) %>% 
+  group_by(year) %>% 
+  slice(1) %>% 
+  ungroup() %>% 
+  count(place_final)
+
+if (nrow(graph_final_place_distribution) > 0) {
+  ggplot(graph_final_place_distribution, aes(x = place_final, y = n)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(
+    aes(label = n),
+    vjust = 0, 
+    nudge_y = 0.1,
+    color = "black") +
+  scale_x_continuous(breaks = seq(1, 27, by = 1)) +
+  labs(title = paste0("Final place distribution for ", params$country_name), 
+       x = "Place in the Grand Final", 
+       y = "Number of times place acquired") +
+  theme_classic()
+} else {
+  cat("This country has not participated in the final round.")
+}
+```
+
+## Loyal besties 
+
+Below are the countries that have NEVER given `r params$country_name` zero points. The bar chart shows the lowest score those countries gave `r params$country_name` instead.
+
+```{r graph_loyal_besties, fig.width=7, fig.height=4, echo = FALSE}
+graph_loyal_besties <- country_to_data %>% 
+  group_by(from_country) %>% 
+  summarise(min_points = min(total_points)) %>% 
+  filter(min_points != 0) %>% 
+  arrange(desc(min_points))
+
+if (nrow(graph_loyal_besties) > 0) {
+  ggplot(graph_loyal_besties, aes(x = reorder(from_country, -min_points), 
+                                y = min_points)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(aes(label = min_points),
+    position = position_stack(vjust = 0.5),
+    color = "black") +
+  labs(title = paste0("Minimum points from countries that have never given ", params$country_name, " zero points"), 
+       x = "Countries", 
+       y = "Minimum points") +
+  theme_classic()
+} else {
+  cat(paste0("All participating countries have given ", params$country_name, " zero points at least once."))
+}
+```
+
+## Only zeros 
+
+On the other hand, here are the countries that have never given `r params$country_name` more than zero points. 
+
+```{r only_zeros, echo = FALSE}
+only_zeros <- country_to_data %>% 
+  group_by(from_country) %>% 
+  summarise(n_total = sum(total_points)) %>% 
+  arrange(n_total) %>% 
+  filter(from_country != params$country_name) %>% 
+  filter(n_total == 0) %>% 
+  distinct(from_country)
+
+if (nrow(only_zeros) > 0) {
+  cat("countries that have never given ", params$country_name, " more than zero points: \n\n")
+  cat(paste0("- ", only_zeros$from_country, collapse = "\n"))
+} else {
+  cat("Just kidding! No country would do something like that to", params$country_name)
+}
+```
+
+```{r graph_tele_besties, include = FALSE}
+graph_tele_besties <- country_to_data %>% 
+  filter(year >=2016) %>% 
+  group_by(from_country) %>% 
+  summarise(n_tele_points = sum(tele_points)) %>% 
+  arrange(desc(n_tele_points)) %>% 
+  head(5) 
+
+if (nrow(graph_tele_besties) > 0) {
+  ggplot(graph_tele_besties, aes(x = reorder(from_country, -n_tele_points), 
+                                 y = n_tele_points)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(
+    aes(label = n_tele_points),
+    position = position_stack(vjust = 0.5),
+    color = "black") +
+  labs(title = paste0("Top five televoter friends of ", params$country_name), 
+       x = "Televoting friend", 
+       y = "Points") +
+  theme_classic()
+} else {
+  ggplot() + theme_void() + labs(title = "This country has not participated since 2016 when televotes became public.")
+}
+
+p1 <- if (nrow(graph_tele_besties) > 0) {
+  ggplot(graph_tele_besties, aes(x = reorder(from_country, -n_tele_points), 
+                                 y = n_tele_points)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(
+    aes(label = n_tele_points),
+    position = position_stack(vjust = 0.5),
+    color = "black") +
+  labs(title = paste0("Top five televoter friends of ", params$country_name), 
+       x = "Televoting friend", 
+       y = "Points") +
+  theme_classic()
+} else {
+  ggplot() + theme_void() + labs(title = "This country has not participated since 2016 when televotes became public.")
+}
+```
+
+```{r graph_tele_topoints, include = FALSE}
+graph_tele_topoints <- country_from_data %>% 
+  filter(year >=2016) %>%
+  group_by(to_country) %>% 
+  summarise(n_tele_points = sum(tele_points)) %>% 
+  arrange(desc(n_tele_points)) %>% 
+  head(5)
+  
+if (nrow(graph_tele_topoints) > 0) {
+  ggplot(graph_tele_topoints, aes(x = reorder(to_country, -n_tele_points), 
+                                      y = n_tele_points)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(
+    aes(label = n_tele_points),
+    position = position_stack(vjust = 0.5),
+    color = "black") +
+  labs(title = paste0(params$country_name, " televoters gave points to"), 
+       x = "Televoting friend", 
+       y = "Points") +
+  theme_classic()
+} else {
+  ggplot() + theme_void() + labs(title = "This country has not participated since 2016 when televotes became public.")
+} 
+
+p2 <- if (nrow(graph_tele_topoints) > 0) {
+  ggplot(graph_tele_topoints, aes(x = reorder(to_country, -n_tele_points), 
+                                      y = n_tele_points)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(
+    aes(label = n_tele_points),
+    position = position_stack(vjust = 0.5),
+    color = "black") +
+  labs(title = paste0(params$country_name, " televoters gave points to"), 
+       x = "Televoting friend", 
+       y = "Points") +
+  theme_classic()
+} else {
+  geom_blank()
+} 
+```
+
+```{r graph_jury_besties, include = FALSE}
+graph_jury_besties <- country_to_data %>% 
+  filter(year >=2016) %>% 
+  mutate(jury_points = replace_na(jury_points, 0)) %>%
+  group_by(from_country) %>% 
+  summarise(n_jury_points = sum(jury_points)) %>% 
+  arrange(desc(n_jury_points)) %>% 
+  head(5)
+  
+if (nrow(graph_jury_besties) > 0) {
+  ggplot(graph_jury_besties, aes(x = reorder(from_country, -n_jury_points), 
+                                 y = n_jury_points)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(
+    aes(label = n_jury_points),
+    position = position_stack(vjust = 0.5),
+    color = "black") +
+  labs(title = paste0("Top five jury friends of ", params$country_name), 
+       x = "Jury friend", 
+       y = "Points") +
+  theme_classic()
+} else {
+  ggplot() + theme_void() + labs(title = "This country has not participated since 2016 when jury votes became a separate category.")
+} 
+
+p3 <- if (nrow(graph_jury_besties) > 0) {
+  ggplot(graph_jury_besties, aes(x = reorder(from_country, -n_jury_points), 
+                                 y = n_jury_points)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(
+    aes(label = n_jury_points),
+    position = position_stack(vjust = 0.5),
+    color = "black") +
+  labs(title = paste0("Top five jury friends of ", params$country_name), 
+       x = "Jury friend", 
+       y = "Points") +
+  theme_classic()
+} else {
+  ggplot() + theme_void() + labs(title = "This country has not participated since 2016 when jury votes became a separate category.")
+} 
+```
+
+```{r graph_jury_topoints, include = FALSE}
+graph_jury_topoints <- country_from_data %>% 
+  filter(year >=2016) %>% 
+  mutate(jury_points = replace_na(jury_points, 0)) %>% 
+  group_by(to_country) %>% 
+  summarise(n_jury_points = sum(jury_points)) %>% 
+  arrange(desc(n_jury_points)) %>% 
+  head(5) 
+
+if(nrow(graph_jury_topoints) > 0) {
+  ggplot(graph_jury_topoints, aes(x = reorder(to_country, -n_jury_points), 
+                                  y = n_jury_points)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(
+    aes(label = n_jury_points),
+    position = position_stack(vjust = 0.5),
+    color = "black") +
+  labs(title = paste0("Countries ", params$country_name, " jury gave points to"), 
+       x = "Jury friend", 
+       y = "Points") +
+  theme_classic()
+} else {
+  ggplot() + theme_void() + labs(title = "This country has not participated since 2016 when jury votes became a separate category.")
+}
+
+p4 <- if(nrow(graph_jury_topoints) > 0) {
+  ggplot(graph_jury_topoints, aes(x = reorder(to_country, -n_jury_points), 
+                                  y = n_jury_points)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(
+    aes(label = n_jury_points),
+    position = position_stack(vjust = 0.5),
+    color = "black") +
+  labs(title = paste0("Countries ", params$country_name, " jury gave points to"), 
+       x = "Jury friend", 
+       y = "Points") +
+  theme_classic()
+} else {
+  geom_blank()
+}  
+```
+
+```{r graph_overall_besties, include = FALSE}
+graph_overall_besties <- country_to_data %>% 
+  group_by(from_country) %>% 
+  summarise(n_points = sum(total_points)) %>% 
+  arrange(desc(n_points)) %>% 
+  head(5) 
+
+ggplot(graph_overall_besties, aes(x = reorder(from_country, -n_points), 
+                                  y = n_points)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(
+    aes(label = n_points),
+    position = position_stack(vjust = 0.5),
+    color = "black") +
+  labs(title = paste0("Top five friends of ", params$country_name), 
+       x = "Countries", 
+       y = "Points") +
+  theme_classic()
+
+p5 <- ggplot(graph_overall_besties, aes(x = reorder(from_country, -n_points), 
+                                  y = n_points)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(
+    aes(label = n_points),
+    position = position_stack(vjust = 0.5),
+    color = "black") +
+  labs(title = paste0("Top five friends of ", params$country_name), 
+       x = "Countries", 
+       y = "Points") +
+  theme_classic()
+```
+
+```{r graph_overall_topoints, include = FALSE}
+graph_overall_topoints <- country_from_data %>% 
+  group_by(to_country) %>% 
+  summarise(n_points = sum(total_points)) %>% 
+  arrange(desc(n_points)) %>% 
+  head(5)
+
+ggplot(graph_overall_topoints, aes(x = reorder(to_country, -n_points), 
+                                   y = n_points)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(
+    aes(label = n_points),
+    position = position_stack(vjust = 0.5),
+    color = "black") +
+  labs(title = paste0("Countries ", params$country_name, " gave points to"), 
+       x = "Countries", 
+       y = "Points") +
+  theme_classic()
+  
+p6 <- ggplot(graph_overall_topoints, aes(x = reorder(to_country, -n_points), 
+                                   y = n_points)) +
+  geom_col(fill = "darkseagreen3") +
+  geom_text(
+    aes(label = n_points),
+    position = position_stack(vjust = 0.5),
+    color = "black") +
+  labs(title = paste0("Countries ", params$country_name, " gave points to"), 
+       x = "Countries", 
+       y = "Points") +
+  theme_classic()
+```
+
+## Birds of a feather sing together
+
+The European Broadcasting Union started separating televote (votes cast by audience) and jury vote (votes cast by official representatives of each participating country) in 2016. 
+Below is a chart that shows top five countries whose public voted for `r params$country_name` and top five countries that `r params$country_name` public voted for the most between 2016 and 2024:
+
+```{r patchwork_one, echo = FALSE}
+p1 + p2
+```
+
+Below is a chart that shows top five countries whose jury voted for `r params$country_name` and top five countries that `r params$country_name` jury voted for the most between 2016 and 2024:
+
+```{r patchwork_two, echo = FALSE}
+p3 + p4
+```
+
+Finally, here is a chart that shows overall (televote and jury vote combined) top five countries that voted for `r params$country_name` and top five countries that `r params$country_name` voted for the most between 1957 and 2024:
+
+```{r patchwork_three, echo = FALSE}
+p5 + p6
+```
+
+```{r render_all_countries, eval=FALSE}
+
+# Now, I am going to try and render this for all of my countries. I asked Claude how to do that and it came up with this 
+
+dir.create("country_reports", showWarnings = FALSE)
+
+for(country in countries) {
+  rmarkdown::render(
+    "scripts/04_actual_eurovision_markdown.Rmd",  
+    output_file = file.path("country_reports", paste0(country, "_eurovision_profile.html")),
+    params = list(country_name = country)
+  )
+  cat("Rendered report for", country, "\n")
+}
+
+#This did not work, so I am turning to Claude again
+
+cat("Current working directory:", getwd(), "\n")
+cat("Does 'country_reports' exist in current directory?", dir.exists("country_reports"), "\n")
+cat("List of files/folders in current directory:", "\n")
+print(list.files())
+
+# Create country_reports directory if it doesn't exist
+dir.create("country_reports", showWarnings = FALSE)
+cat("Directory created or already exists. Checking again:", dir.exists("country_reports"), "\n")
+
+# Now let's create a simple test file to see if we can write to this directory
+test_file <- file.path("country_reports", "test.txt")
+write.table("test", file = test_file)
+cat("Test file created at:", normalizePath(test_file), "\n")
+
+eurovision <- read.csv("data/eurovision.csv")  
+
+countries <- unique(eurovision$to_country)  
+
+# Get absolute path to Rmd file
+rmd_file <- normalizePath("scripts/04_actual_eurovision_markdown.Rmd", mustWork = TRUE)
+cat("Using Rmd file:", rmd_file, "\n")
+
+# Create output directory (absolute path)
+output_dir <- file.path(getwd(), "country_reports")
+dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
+cat("Output directory:", normalizePath(output_dir), "\n")
+
+# Loop through countries - use only a few for testing
+test_countries <- head(countries, 3)  # Just do 3 for testing
+for(country in test_countries) {
+  output_file <- file.path(output_dir, paste0(country, "_eurovision_profile.html"))
+  
+  cat("Rendering for country:", country, "\n")
+  cat("Output will be:", output_file, "\n")
+  
+  tryCatch({
+    rmarkdown::render(
+      input = rmd_file,
+      output_file = output_file,
+      params = list(country_name = country)
+    )
+    cat("Successfully rendered for", country, "\n")
+  }, error = function(e) {
+    cat("Error rendering for", country, ":", e$message, "\n")
+  })
+}
+
+# I ran this and got this error message: "Error rendering for Denmark : 'data/eurovision.csv' does not exist in current working directory ('C:/Users/marii/Documents/GitHub/ADJ_final/scripts')."
+
+# And now, I understand what the problem is! R was looking for my data in the scripts folder, but my data is in the data folder. I am going back to Claude on how to fix this.
+
+# Check current working directory
+project_dir <- getwd()
+cat("Current working directory:", project_dir, "\n")
+
+# Load your dataset from the correct location
+eurovision <- read.csv(file.path(project_dir, "data/eurovision.csv"))
+cat("Dataset loaded successfully\n")
+
+# Get unique country names
+countries <- unique(eurovision$to_country)  
+
+# Paths for input and output
+rmd_file <- file.path(project_dir, "scripts/04_actual_eurovision_markdown.Rmd")
+output_dir <- file.path(project_dir, "country_reports")
+dir.create(output_dir, showWarnings = FALSE)
+
+# Loop through countries
+for(country in countries) {
+  output_file <- paste0(country, "_eurovision_profile.html")
+  
+  cat("Rendering for country:", country, "\n")
+  
+  rmarkdown::render(
+    input = rmd_file,
+    output_file = file.path(output_dir, output_file),
+    params = list(country_name = country),
+    knit_root_dir = project_dir  
+  )
+  cat("Successfully rendered for", country, "\n")
+}
+
+#Yayyyy! It worked! I can't believe it actually happened!!
+# This is all I have intended to do for this final project. You can now find Eurovision information for any of the 52 countries that have ever participated. Those reports are in the country_reports folder. Once Eurovision 2025 happens, I will definitely add in the new data and rerun the code to make it up to date!
+#I apologize for the amount I have made you read, but I hope you found the ride as fascinating as I did.
+```

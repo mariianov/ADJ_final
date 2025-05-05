@@ -1,0 +1,552 @@
+---
+title: "Cleaning existing datasets"
+output: html_notebook
+---
+
+This is part one of the project in which I will clean and combine the datasets I have found. 
+
+First, I am going to load the libraries I will need for cleaning my data
+```{r}
+library(tidyverse)
+library(janitor)
+library(readxl)
+library(stringr)
+```
+
+Now, I am going to upload the two datasets I will clean and then combine, in addition to the dataset I will use to do the cleaning
+```{r}
+rawdata2023 <- read_csv("data/votes.csv")
+rawcontestants <- read_csv("data/contestants.csv")
+#These two datasets come from this Github repository: #https://github.com/Spijkervet/eurovision-dataset/releases 
+
+rawdata2024 <- read_csv("data/esc2024.csv")
+#This dataset comes from this Github repository: https://github.com/sunsided/esc2024
+
+rawcodes <- read_csv("data/country_codes.csv")
+#This dataset comes from this Github repository: #https://github.com/josago97/EurovisionDataset/tree/main 
+
+rawsemifinals <- read_excel("data/semi_final_2324.xlsx")
+rawwld2024 <- read_excel("data/wld2024.xlsx")
+rawresults2024 <- read_excel("data/results_2024.xlsx")
+#The three datasets above were created by me. I copied and pasted data in Excel from this website: https://eschome.net/ 
+
+```
+
+I will work with the rawdata2023 dataset first as it has most of the data I am looking for. To start with, I will assess my data and see what I need to clean up.
+```{r}
+rawdata2023 %>% head(5)
+
+#From this query, I get to see that each row is a "voting interaction" between two countries. I have:
+#the year of the competition, 
+#the round, 
+#"from_country_id" and "from_country" (both are actually just two-character ids, so I will need to clean this). These two columns identify the country that gave a certain number of points, 
+#"to_country_id" and "to_country" (same problem as "from_country"). These two columns identify the country that received a certain number of points; 
+#the number of total_points, 
+#the number of televoting points, 
+#the number of jury points (there is a catch; I will explain). 
+
+# What this dataset does not have is where each country placed. I plan to address this by adding some of the "rawcontestants" dataset to this one. 
+```
+
+What are the boundaries of this data?
+```{r}
+rawdata2023 %>% summarise(range(year))
+
+# The dataset includes data for contests between 1957 and 2023. As a true Eurovision fan, I know that there was no contest in 2020 because of Covid. I will check if the dataset has anything for 2020. 
+
+rawdata2023 %>% filter(year == 2020)
+
+# I got zero rows in return, so no data for 2020, as I expected. 
+
+# If I wasn't a Eurovision nerd and didn't know that there was no competition in 2020, I could also run the following code to make sure every year is in the dataset. 
+
+rawdata2023 %>% distinct(year)
+
+# All the other years are in the dataset!
+```
+
+Next, I want to assess the round column. Currently, every competition has two semi finals and a final. I imagine this was not the case back when Eurovision started. I will find out when semi finals were introduced and vet that every year since then has at least a semi final and a final. 
+```{r}
+rawdata2023 %>% group_by(year) %>% 
+  distinct(round)
+
+# The first semi final took place in 2004. There was only one semi final in 2004-2007 contests, and since 2008, every year has had two semi finals (so cool! I didn't know this before). 
+
+# 2023 most certainly had two semi finals, but they are missing from this dataset. I will scrape a website or add them manually. 
+
+# Update: I tried to scrape two different websites (this is the 00_failed_scraping_eurovision file), and neither worked, so I will manually copy and paste the data I need into an Excel file, and then I will load it at the top of this script. 
+```
+
+Next are from_country_id and to_country_id rows. First, I will check how many countries I have in total
+```{r}
+rawdata2023 %>% distinct(from_country_id)
+
+# I get 53 rows in return
+
+rawdata2023 %>% distinct(to_country_id)
+
+# There are 52 rows in return. This is completely understandable because countries can receive points from "Rest of the world" countries - aka countries that are not participating in Eurovision and are, therefore, not a category in to_country_id.
+
+# In case you wonder when "Rest of the world" votes were introduced: 
+
+rawdata2023 %>% filter(from_country_id == "wld") %>% 
+  distinct(year)
+
+# The answer is 2023 :)
+```
+
+Now, I want to change to_country and from_country rows to actually show country names, not country ids. I found another dataset that has all the country id - country name pairs. I will join the two datasets. 
+
+Actually, the dataset I found is a json file (I put it into the data folder). I converted it into a csv file online, and that's the file I am going to be using. I will add it at the top of the script. 
+```{r}
+rawcodes
+
+#country codes in this dataset are all uppercase, but they are all lowercase in my big voting dataset, so I will make them lowercase here 
+
+?tolower
+
+codes <- rawcodes %>% mutate(code = tolower(code))
+```
+
+
+Now I will join the main dataset and country codes 
+```{r}
+rawdata2023 %>% left_join(codes, by = c("from_country_id" = "code")) %>% 
+  rename(from_country_name = country_name) %>% 
+  relocate(from_country_name, .after = from_country_id)  %>% #yay it worked! Now, I am just going to double check
+  select(from_country_id, from_country_name) %>% 
+  distinct(from_country_id, from_country_name) #perfect! I will now make this permanent. I also need to manually add that "wld" is world (rest of the world)
+
+data2023 <- rawdata2023 %>% left_join(codes, by = c("from_country_id" = "code")) %>% 
+  rename(from_country_name = country_name) %>% 
+  relocate(from_country_name, .after = from_country_id) %>% 
+  mutate(new_from_country_name = case_when(
+  from_country_id == "wld" ~ "World", 
+  .default = from_country_name), .after = from_country_name) %>% 
+  select(-from_country_name, -from_country) %>% 
+  rename(from_country = new_from_country_name)
+
+# feeling victorious! Now, I need to do the same thing for the to_country (this will be a little easier because there is no rest of the world)
+
+data2023 <- data2023 %>% left_join(codes, by = c("to_country_id" = "code")) %>% 
+  rename(to_country_name = country_name) %>% 
+  relocate(to_country_name, .after = to_country_id) %>%
+  select(-to_country) %>% 
+  rename(to_country = to_country_name)
+```
+
+Next is the number of total points. Every row in this dataset should have a value here. I will vet this
+```{r}
+data2023 %>% filter(is.na(total_points))
+
+# I get zero rows in return, so this is perfect! 
+```
+
+The last two columns in this dataset are tele_points (points given by viewers) and jury_points (points given by official representatives of each country). For a long time, there were only jury points, and because they were the only possible points, they were considered total_points. According to the official Eurovision website, the separation between jury vote and televote only came about in 2016, so I will vet this.
+```{r}
+data2023 %>% filter(!is.na(tele_points)) %>% 
+  distinct(year)
+
+# The Internet was correct. Televoting, as a separate category, appeared in 2016, and every year since then has values in this column
+
+# I also want to make sure there are televote points for every round, not just the final
+
+data2023 %>% filter(!is.na(tele_points)) %>% 
+  distinct(year, round)
+
+# All good here!
+
+# Finally, the same should be true for jury points 
+
+data2023 %>% filter(!is.na(jury_points)) %>% 
+  distinct(year, round)
+
+# Splendid! Jury vote points also started existing in 2016 and have been present since then. 
+```
+
+I have now checked every column! The last thing I would like to do at this point is create a row that I will use to join this dataset with a different one (the one that has where each country placed). 
+```{r}
+data2023 <- data2023 %>% unite(col = "identifier", year, round, to_country_id, 
+                               sep = "_", remove = F)
+```
+
+Now, I will work on cleaning the "contestants" dataset. I only really want to know where each country placed in the final, so I am going to filter for that data. I also need to know what range this dataset covers, so I will actually start with that
+```{r}
+rawcontestants %>% summarise(range(year))
+
+# The range is the same! This dataset also has 1956 but that was the first year and there was no voting (every country won), so that's why I do not have it in the big dataset. 
+
+# Now I will filter for the columns I will need 
+
+rawcontestants %>% filter(!is.na(place_final)) %>% 
+  mutate(round = "final") %>% 
+  select(year, round, to_country_id, place_final) %>% 
+  unite(col = "identifier", year, round, to_country_id, sep = "_", 
+                      remove = F) %>% 
+  select(identifier, place_final) #this worked! I will save this as a separate dataset 
+
+results <- rawcontestants %>% filter(!is.na(place_final)) %>% 
+  mutate(round = "final") %>% 
+  select(year, round, to_country_id, place_final) %>% 
+  unite(col = "identifier", year, round, to_country_id, sep = "_", 
+                      remove = F) %>% 
+  select(identifier, place_final)
+
+```
+
+And now, I will join the two together, so I have voting + where each finalist landed in the grand final
+```{r}
+data2023 <- data2023 %>% left_join(results, by = "identifier") 
+
+#Woohoo! Now, I am completely done with this dataset! 
+```
+
+Now, I am going to clean the 2024 dataset! First, what is one row here?
+```{r}
+rawdata2024 %>% head(5)
+
+# This dataset also shows voting interactions between participating countries. The first thing I see is that column names are capitalized, so I need to make them lowercase. I also need to make column names consistent with the 2023 dataset. The second column ("Country") marks the country that gave out points, and the fourth column ("Voted For") is the country that received points. The third column is a link to the Eurovision website, which I do not need, so I will get rid of this column. The next five columns are individual points from each of the five jurors (this is very cool information that I don't really need, so I will delete these columns too). The next two columns are "jury" and "televoting": these show the ranking a "voted for" country got according to the jury and televoters of a giver-country respectively (I don't really need this either). What I do need is "jury points" and "televoting points." This is what I will be using for my analysis. I will also need to create a total points column. 
+```
+
+The first thing I want to do is lowercase column names and get rid of the columns I do not need
+```{r}
+rawdata2024 %>% clean_names() %>% select(-link, -juror_a, -juror_b, -juror_c, 
+                                      -juror_d, -juror_d, -juror_e, -jury, -televoting, 
+                                      -jury_rank, -televoting_rank)
+
+# this worked great, so I am going to make it permanent
+
+data2024 <- rawdata2024 %>% clean_names() %>% select(-link, -juror_a, -juror_b, 
+                                                     -juror_c, -juror_d, -juror_d,
+                                                     -juror_e, -jury, -televoting, 
+                                                     -jury_rank, -televoting_rank)
+```
+
+Now, I can change column names and add missing columns
+```{r}
+#For my personal reference, here are the column names from data2023 in the order they appear: 
+
+data2023 %>% colnames() #I think this is base R, but it worked!
+
+#Column names: 
+#"identifier"
+#"year"            
+#"round"           
+#"from_country_id"
+#"from_country"    
+#"to_country_id"   
+#"to_country"      
+#"total_points"   
+#"tele_points"     
+#"jury_points"     
+#"place_final" 
+```
+
+First, I will rename existing columns:
+```{r}
+data2024 <- data2024 %>% rename(from_country = country, 
+                    to_country = voted_for, 
+                    tele_points = televoting_points)
+```
+
+Now, I am going to add country id's
+```{r}
+data2024 %>% left_join(codes, by = c("from_country" = "country_name")) %>% 
+  rename(from_country_id = code) %>% 
+  relocate(from_country_id, .before = from_country)  %>% #now I am going to make sure everything looks right
+  select(from_country_id, from_country) %>% 
+  distinct(from_country_id, from_country)
+  
+# Everything is correct! I did notice that this dataset is missing Rest of the World votes (•́︵•̀ )  
+# So I will add them manually 
+
+#Actually just to make sure:
+
+data2024 %>% filter(grepl("world", from_country, ignore.case = T))
+
+# Yep, there is nothing. But at least my left_join worked, so I am going to make it permanent
+
+data2024 <- data2024 %>% left_join(codes, by = c("from_country" = "country_name")) %>% 
+  rename(from_country_id = code) %>% 
+  relocate(from_country_id, .before = from_country) 
+
+#Now, I am going to do the same for to_county entries 
+
+data2024 <- data2024 %>% left_join(codes, by = c("to_country" = "country_name")) %>% 
+  rename(to_country_id = code) %>% 
+  relocate(to_country_id, .before = to_country)
+```
+
+Now I am going to add my missing columns: "identifier", "round", "total_points". I will still be missing "place_final", but I will add this by bringing in another table
+```{r}
+data2024 %>% mutate(round = "final", .after = year) %>% #the documentation for this dataset said this is just the final round, and I will be adding the semifinals later on
+  unite(col = "identifier", year, round, to_country_id, sep = "_", remove = F) %>% 
+  mutate(total_points = jury_points + tele_points)
+
+# All of this worked, so I will make it permanent
+
+data2024 <- data2024 %>% mutate(round = "final", .after = year) %>% 
+  unite(col = "identifier", year, round, to_country_id, sep = "_", remove = F) %>% 
+  mutate(total_points = jury_points + tele_points)
+
+```
+
+Now, last but not least, I need to put my columns in the right order
+```{r}
+data2024 <- data2024 %>% relocate(total_points, .after = to_country) %>% 
+  relocate(tele_points, .after = total_points)
+```
+
+Now, I am going to add my rest of the world votes for 2024. First, I need to clean them and add all the columns
+```{r}
+rawwld2024
+
+# This dataset has the following columns: 
+#"Country," which is country-receiver (to_country) of points from the rest of the world;
+#"Points," which is the number of points that country received from the rest of the world;
+#"Avg. Points," which is the average number of points that country receives from the rest of the world (very interesting, but I will not need this)
+```
+
+First, I will clean column names and get rid of average points
+```{r}
+wld2024 <- rawwld2024 %>% clean_names() %>% 
+  select(-avg_points)
+```
+
+Next, I see that 0 points are reflected as N/A. I will change this as N/A means a voting interaction did not happen (this will come up in the analysis part)
+```{r}
+wld2024 <- wld2024 %>% mutate(points = replace_na(points, 0)) #I looked this function up
+```
+
+Now, I need to add my missing columns and rename the existing ones
+```{r}
+wld2024 <- wld2024 %>% mutate(year = "2024", .before = country) %>% 
+  mutate(year = as.integer(year)) %>% 
+  mutate(round = "final", .after = year) %>% 
+  mutate(from_country_id = "wld", .after = round) %>% 
+  mutate(from_country = "World", .after = from_country_id) %>% 
+  rename(to_country = country) %>% 
+  rename(tele_points = points) %>% #this is because rest of the world points can only come from televoters, not juries. This is also the reason why in this case tele_points = total_points
+  mutate(total_points = tele_points) %>% 
+  relocate(total_points, .after = to_country)
+```
+
+Now, I am going to add to_country id's and create the identifier column
+```{r}
+wld2024 <- wld2024 %>% left_join(codes, by = c("to_country" = "country_name")) %>% 
+  rename(to_country_id = code) %>% 
+  relocate(to_country_id, .before = to_country)
+
+wld2024 <- wld2024 %>% unite(col = "identifier", 
+                   year, round, to_country_id, sep = "_", remove = F)
+```
+
+Success! Now, I can bind the two datasets together
+```{r}
+#data2024 <- bind_rows(data2024, wld2024) #I put a # at the from so I don't accidentally run this in the future
+
+# I am getting this error message: Error in `bind_rows()`:
+#! Can't combine `..1$year` <double> and `..2$year` <character>.
+#Run `rlang::last_trace()` to see where the error occurred.
+
+# I imagine that the year column may be stored as a character in one of the datasets and as something else in a different one. To fix this, I will mutate the column in both datasets to be an integer 
+
+wld2024 <- wld2024 %>% mutate(year = as.integer(year))
+
+data2024 <- data2024 %>% mutate(year = as.integer(year))
+
+# Now, I will try again
+
+data2024 <- bind_rows(data2024, wld2024)
+
+# Yay! This worked!
+```
+
+Now, I need my 2023 and 2024 semi finals data:
+```{r}
+rawsemifinals
+
+# Here I already have the year, round, to_country, from_country, tele_points and jury_points, so I am only missing id's, identifier, and total_points. 
+# Interestingly, the EBU (the official broadcaster of Eurovision) made a change to the semi finals voting process after the 2022 competition. According to the new rules, official juries only vote in the finals, which is why there were only tele points in 2023 and 2024 semifinals. (I didn't know this before this project!)
+```
+
+First, I am going to add country ids
+```{r}
+rawsemifinals %>% left_join(codes, by = c("from_country" = "country_name")) %>%  #this is missing the code for World, so I will add it manually
+  mutate(from_country_id = case_when(
+    from_country == "World" ~ "wld", 
+    .default = code), .after = from_country) %>% #now, I am gonna make sure this worked
+  select(from_country_id, from_country) %>% 
+  distinct(from_country_id, from_country)
+
+#Now I am going to make this permanent
+
+semifinals <- rawsemifinals %>% 
+  left_join(codes, by = c("from_country" = "country_name")) %>%  #this is missing the code for World, so I will add it manually
+  mutate(from_country_id = case_when(
+    from_country == "World" ~ "wld", 
+    .default = code), .after = from_country) %>% 
+  select(-code)
+
+# Now I am going to do the same for the "to_country"
+
+semifinals %>% left_join(codes, by = c("to_country" = "country_name")) %>%
+  select(code, to_country) %>% 
+  distinct(code, to_country) 
+
+# I am glad I did this check because a handful of countries are not showing up. I am not sure why, but I am guessing this is a formatting issue. Either way, I will select only the countries that don't show up, and I will case_when their ids
+
+semifinals %>%  
+  left_join(codes, by = c("to_country" = "country_name")) %>%
+  select(code, to_country) %>% 
+  distinct(code, to_country) %>% 
+  filter(is.na(code))
+
+#There six countries for which the id did not load: Azerbaijan, Croatia, Iceland, Latvia Lithuania, Switzerland
+
+#I will use the codes dataset to find their ids:
+
+codes %>% filter(country_name %in% c("Azerbaijan", "Croatia", 
+                                   "Iceland", "Latvia", 
+                                   "Lithuania", "Switzerland"))
+
+#Here is what I got in return:
+#az	Azerbaijan			
+#hr	Croatia			
+#is	Iceland			
+#lv	Latvia			
+#lt	Lithuania			
+#ch	Switzerland
+
+#Now I will left join again and add these ids manually
+
+semifinals %>% 
+  left_join(codes, by = c("to_country" = "country_name")) %>%
+  mutate(to_country_id = case_when(
+    to_country == "Azerbaijan" ~ "az",
+    to_country == "Croatia" ~ "hr",
+    to_country == "Iceland" ~ "is",
+    to_country == "Latvia" ~ "lv",
+    to_country == "Lithuania" ~ "lt",
+    to_country == "Switzerland" ~ "ch", 
+    .default = code), .after = to_country) %>% 
+  select(to_country, to_country_id) %>% 
+  distinct(to_country, to_country_id) 
+
+# I consulted chat GPT, and it suggested some countries may have trailing spaces. I will install the stringr library and try to get rid of them
+
+semifinals <- semifinals %>%
+  mutate(to_country = str_trim(to_country))
+
+# I will also do this for the round column just in case
+
+semifinals <- semifinals %>%
+  mutate(round = str_trim(round))
+
+semifinals %>% left_join(codes, by = c("to_country" = "country_name")) %>%
+  select(code, to_country) %>% 
+  distinct(code, to_country) 
+
+#Yayyy this worked! So now I will finish adding the ids
+
+semifinals <- semifinals %>% left_join(codes, by = c("to_country" = "country_name")) %>%
+  rename(to_country_id = code)
+  
+```
+
+Amazing! Now, I need add the identifier, total_points and arrange all the columns in the correct order. I am also going to make sure the year in this dataset is stored as an integer
+```{r}
+semifinals <- semifinals %>% unite(col = "identifier", 
+                     year, round, to_country_id, sep = "_", remove = F) %>% 
+  relocate(from_country_id, .after = round) %>% 
+  relocate(from_country, .after = from_country_id) %>% 
+  relocate(to_country_id, .after = from_country) %>% 
+  mutate(total_points = tele_points) %>% 
+  relocate(total_points, .after = to_country)
+
+semifinals <- semifinals %>% mutate(year = as.integer(year))
+```
+
+Now, I can bind this together with the rest of my 2024 data
+```{r}
+data2024 <- bind_rows(data2024, semifinals)
+
+#Perfect!
+```
+
+The penultimate thing I need to do is add where each finalist country placed in the 2024 competition. To do this, I will use the rawresults2024 dataset
+```{r}
+rawresults2024
+
+#Here I have columns for place, total points, running number in the show, country, performer and song
+```
+
+First things first, I will clean up the names and get rid of the columns I don't need (this is most of the columns). I will only need the place and the country name (to then get an id and an identifier)
+```{r}
+results2024 <- rawresults2024 %>% clean_names() %>% 
+  select(-points, -no, -performer, -song) %>% 
+  mutate(year = 2024) %>% 
+  rename(place_final = place)
+```
+
+Now, I will add country id's to create identifiers 
+```{r}
+results2024 %>% left_join(codes, by = c("country" = "country_name")) %>% 
+  select(country, code) %>% 
+  distinct(country, code)
+
+# This works great, so I will make it permanent, plus I will create the identifier and get rid of the rest of the columns 
+
+results2024 <- results2024 %>% left_join(codes, by = c("country" = "country_name")) %>%
+  mutate(round = "final") %>% 
+  unite(col = "identifier", year, round, code, sep = "_", remove = F) %>% 
+  relocate(identifier, .before = place_final) %>% 
+  select(-country, -code, -year, -round)
+
+```
+
+Now, I will add this to the rest of my 2024 data
+```{r}
+data2024 <- data2024 %>% left_join(results2024, by = "identifier")
+```
+
+Fantastic! The last thing I want to do is combine my data2023 and data2024 datasets
+```{r}
+eurovision <- bind_rows(data2023, data2024)
+# Yay! Everything worked!
+```
+
+Now, I just want to run a couple more checks to make sure everything went well
+```{r}
+eurovision %>% summarise(range(year))
+
+eurovision %>% distinct(year)
+
+eurovision %>% distinct(round)
+
+eurovision %>% distinct(from_country, from_country_id) %>% 
+  arrange(from_country)
+
+eurovision %>% distinct(to_country, to_country_id) %>% 
+  arrange(to_country)
+
+eurovision %>% filter(is.na(total_points))
+
+eurovision %>% distinct(place_final) %>% 
+  arrange(place_final)
+
+#Everything looks great!
+```
+
+The last thing I want to do is move the identifier to the back. I am not sure I am going to need it, but I want to keep it just in case
+```{r}
+eurovision <- eurovision %>% 
+  relocate(identifier, .after = place_final)
+```
+
+Now, I will save the Eurovision dataset for future analysis, which will be a separate R notebook. It is titled 02_analysis_eurovision, and you can find it in the scripts folder.
+```{r}
+write_csv(eurovision, "data/eurovision.csv")
+```
+
+
